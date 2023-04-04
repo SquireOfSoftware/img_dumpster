@@ -2,6 +2,7 @@ use actix_multipart::form::tempfile::TempFile;
 use actix_multipart::form::MultipartForm;
 use actix_web::HttpResponse;
 use uuid::Uuid;
+use serde::Serialize;
 
 #[derive(Debug, MultipartForm)]
 pub struct UploadForm {
@@ -9,25 +10,38 @@ pub struct UploadForm {
     files: Vec<TempFile>,
 }
 
+#[derive(Debug, Serialize)]
+struct UploadedResponse {
+    uploads: Vec<UploadedFile>
+}
+
+#[derive(Debug, Serialize)]
+struct UploadedFile {
+    id: String,
+    path: String,
+}
+
 #[tracing::instrument(skip(form))]
 pub async fn upload_multi_part_file(
     MultipartForm(form): MultipartForm<UploadForm>,
 ) -> HttpResponse {
     dbg!(&form);
+    let mut ids = Vec::new();
 
     for f in form.files {
+        let id = Uuid::new_v5(&Default::default(), &[]).to_string();
         let path = format!(
-            "./{}-{}",
-            &Uuid::new_v5(&Default::default(), &[]).to_string(),
+            "/tmp/{}-{}",
+            &id,
             &f.file_name.unwrap()
         );
         dbg!(format!("saving to {path}"));
-        let new_file = f
-            .file
-            .persist(path)
+        f.file
+            .persist(&path)
             .expect("Something happened with the save");
 
-        dbg!(new_file.metadata()).expect("where is metadata?");
+        ids.push(UploadedFile { id, path });
     }
-    HttpResponse::Ok().body("Upload is done!".to_string())
+
+    HttpResponse::Ok().json(ids)
 }
