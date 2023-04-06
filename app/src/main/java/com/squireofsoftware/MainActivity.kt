@@ -31,10 +31,12 @@ fun Greeting(name: String) {
     Text(text = "Hi $name!!")
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true,
+    name = "Test",
+    showSystemUi = true)
 @Composable
-fun DefaultPreview() {
+fun TrashCanPreview() {
     ImgTrashCanTheme {
-        Greeting("Android")
+        Greeting(name = "Mum")
     }
 }
