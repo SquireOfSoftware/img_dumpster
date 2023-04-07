@@ -3,6 +3,7 @@ package com.squireofsoftware
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
@@ -10,6 +11,7 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.sp
 import com.squireofsoftware.ui.theme.ImgTrashCanTheme
 
 class MainActivity : ComponentActivity() {
@@ -19,7 +21,7 @@ class MainActivity : ComponentActivity() {
             ImgTrashCanTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
-                    Greeting("Mum")
+                    CurrentDirectory("Mum", from = "John")
                 }
             }
         }
@@ -27,16 +29,25 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String) {
-    Text(text = "Hi $name!!")
+fun CurrentDirectory(message: String, from: String = "", modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = "Hi $message",
+            fontSize = 36.sp
+        )
+        Text(
+            text = "~ $from",
+            fontSize = 24.sp
+        )
+    }
 }
 
-@Preview(showBackground = true,
+@Preview(showBackground = false,
     name = "Test",
     showSystemUi = true)
 @Composable
 fun TrashCanPreview() {
     ImgTrashCanTheme {
-        Greeting(name = "Mum")
+        CurrentDirectory(message = "Mum", from = "John")
     }
 }
