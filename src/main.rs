@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/exif_test", web::get().to(read_exifs))
             .route("/file", web::post().to(upload_multi_part_file))
     })
-    .listen(TcpListener::bind("127.0.0.1:8002")?)?
+    .listen(TcpListener::bind("192.168.1.110:8002")?)?
     .run()
     .await;
 
