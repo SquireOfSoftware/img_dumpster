@@ -20,23 +20,23 @@ import androidx.compose.material.TextButton
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.squireofsoftware.ui.theme.ImgTrashCanTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.Response
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
-import kotlin.experimental.and
 
 class MainActivity : ComponentActivity() {
+    private val client = OkHttpClient()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -70,6 +70,13 @@ class MainActivity : ComponentActivity() {
             requestPermissionLauncher.launch(READ_EXTERNAL_STORAGE)
             return
         }
+        // Just discovered that with the new API changes you cannot easily access the external storage from android
+//        if (ContextCompat.checkSelfPermission(this, MANAGE_EXTERNAL_STORAGE)
+//            != PackageManager.PERMISSION_GRANTED) {
+//            // Permission is not granted, request it
+//            requestPermissionLauncher.launch(MANAGE_EXTERNAL_STORAGE)
+//            return
+//        }
         // Permission is already granted, read the photos
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -102,69 +109,46 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "Image path: $imagePath", Toast.LENGTH_SHORT).show()
                 if (file != null) {
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val response = uploadFile(file = file)
-                        val checksum = getFileChecksum(file)
-                        if (response.isSuccessful) {
-                            val mapper = ObjectMapper()
-                            val result: UploadResponse =
-                                mapper.readValue(response.body?.bytes(), UploadResponse::class.java)
-
-                            if (result.checksum == checksum) {
-                                deleteFile(context = context, file = file)
-                            } else {
-                                Log.d("Test", "The checksum does not match!")
-                            }
-                        } else {
-                            Log.d("Test", "Image failed to get uploaded")
-                        }
+                        val fileHash = getFileChecksum(file)
+                        uploadFile(file = file, fileHash = fileHash)
                     }
                 } else {
                     Log.d("Test", "This is a weird file?")
                 }
             }
-            cursor.close()
+            Toast.makeText(this, "We are done!", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun copyFileFromUri(context: Context, uri: Uri): File? {
         val contentResolver = context.contentResolver
-        val inputStream = contentResolver.openInputStream(uri)
-        inputStream ?: return null
+        val inputStream = contentResolver.openInputStream(uri)!!
 
         val outputFile = File(context.cacheDir, "temp_file")
         FileOutputStream(outputFile).use { outputStream ->
             val buffer = ByteArray(4 * 1024) // buffer size
             var read: Int
-            while (inputStream.read(buffer).also { read = it } != -1) {
-                outputStream.write(buffer, 0, read)
+            outputStream.use { outputStream ->
+                while (inputStream.read(buffer).also { read = it } != -1) {
+                    outputStream.write(buffer, 0, read)
+                }
+                outputStream.flush()
             }
-            outputStream.flush()
         }
 
         return outputFile
     }
 
     private fun getFileChecksum(file: File): String {
-        val messageDigest = MessageDigest.getInstance("MD5")
-        val fileInputStream = file.inputStream()
-        val byteArray = ByteArray(1024)
-        var bytesCount: Int
-        while (fileInputStream.read(byteArray).also { bytesCount = it } != -1) {
-            messageDigest.update(byteArray, 0, bytesCount)
-        }
-        fileInputStream.close()
-
-        val bytes = messageDigest.digest()
-        val stringBuilder = StringBuilder()
-        for (i in bytes.indices) {
-            stringBuilder.append(((bytes[i] and 0xff.toByte()) + 0x100).toString(16).substring(1))
-        }
-        return stringBuilder.toString()
+        val messageDigest = MessageDigest.getInstance("SHA-256")
+            .digest(file.readBytes())
+            .fold("") { str, it -> str + "%02x".format(it) }
+        Log.d("Test", "hash for ${file.absolutePath} at: $messageDigest")
+        return messageDigest
     }
 
-    private suspend fun uploadFile(file: File): Response {
-        val client = OkHttpClient()
-
+    private fun uploadFile(file: File, fileHash: String) {
+        val context = this.applicationContext
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -172,24 +156,50 @@ class MainActivity : ComponentActivity() {
                 file.name,
                 file.asRequestBody("image/jpeg".toMediaTypeOrNull())
             )
+            .addFormDataPart("file_hash", fileHash)
             .build()
 
         val request = Request.Builder()
-            .url("http://192.168.1.110:8002/file")
+            // set this to the webserver of your choice
+            .url("http://localhost:8002/images")
             .post(requestBody)
+            .header("Connection", "close")
             .build()
 
-        return withContext(Dispatchers.IO) { client.newCall(request).execute() }
+        Log.d("Test", "sending the file now")
+
+        client.newCall(request).execute().use {
+            if (it.isSuccessful) {
+                Log.d("Test", "upload was complete, going to see if we can delete it")
+                val payload = it.body?.string()!!
+                Log.d("Test", "payload: $payload")
+                // seems like json deserialisation is having some serious problems
+                // i ended up keeping the interface simple, just return the hashes
+                // so its easier to deserialise
+                val result: Array<String> = Json.decodeFromString(payload)
+                Log.d("Test", "decoded!!")
+
+                if (result[0] == fileHash) {
+                    Log.d("Test", "deleting the file now")
+                    deleteFile(context = context, file = file)
+                    Log.d("Test", "we are done?!")
+                } else {
+                    Log.d("Test", "The checksum does not match! ${result[0]} != $fileHash")
+                }
+            } else {
+                Log.d("Test", "Image failed to get uploaded")
+            }
+        }
     }
 
-    private suspend fun deleteFile(context: Context, file: File): Boolean {
+    private fun deleteFile(context: Context, file: File): Boolean {
         val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val selection = MediaStore.Images.Media.DATA + "=?"
         val args = arrayOf(file.absolutePath)
-        val rows = withContext(Dispatchers.IO) {context.contentResolver.delete(uri, selection, args) }
+        Log.d("Test", "sending delete request now")
+        val rows = context.contentResolver.delete(uri, selection, args)
+        Log.d("Test", "delete is done")
 
         return rows > 0
     }
 }
-
-class UploadResponse(val checksum: String, val filePath: String)

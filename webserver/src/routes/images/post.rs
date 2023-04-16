@@ -32,7 +32,7 @@ pub async fn upload_images(MultipartForm(form): MultipartForm<UploadForm>,
     for mut f in form.files {
         let id = Uuid::new_v4().to_string();
         let path = format!(
-            "/tmp/{}-{}",
+            "/tmp/{}-{}.jpeg",
             &id,
             &f.file_name.unwrap()
         );
@@ -40,15 +40,19 @@ pub async fn upload_images(MultipartForm(form): MultipartForm<UploadForm>,
         let _ = &f.file.read_to_end(&mut file_bytes).expect("Unable to read data");
         let mut file_hash = Sha256::new();
         file_hash.update(&file_bytes);
-        // Sha256::digest(&file_bytes);
         let file_hash = format!("{:x}", &file_hash.finalize());
         dbg!(format!("saving to {path}, hash: {file_hash}"));
         f.file
             .persist(&path)
             .expect("Something happened with the save");
 
-        ids.push(UploadedFile { id, path, file_hash });
+        ids.push(file_hash);
     }
+
+    // turns out kotlin android has some serious problems reading complex objects
+    // so just to keep things simple and get over the hump, ill opt for sending the
+    // hashes back to limit the deserialisation
+    dbg!(&ids);
 
     HttpResponse::Ok().json(ids)
 }

@@ -14,7 +14,6 @@ async fn main() -> anyhow::Result<()> {
             .route("/file", web::post().to(upload_multi_part_file))
             .route("/images", web::post().to(upload_images))
     })
-    // .listen(TcpListener::bind("192.168.1.110:8002")?)?
     .listen(TcpListener::bind("127.0.0.1:8002")?)?
     .run()
     .await;
